@@ -30,11 +30,16 @@ def get_prop_object(self, context, prop_name, obj):
         parts = []
         current = ""
         bracket_depth = 0
-        for char in path:
+        for i, char in enumerate(path):
             if char == "[":
                 bracket_depth += 1
             elif char == "]":
                 bracket_depth -= 1
+                if bracket_depth == 0 and i + 1 < len(path) and path[i + 1] == "[":
+                    # Found "][", split into two parts
+                    parts.append(current + char)
+                    current = ""
+                    continue
             elif char == "." and bracket_depth == 0:
                 if current:
                     parts.append(current)
@@ -43,6 +48,7 @@ def get_prop_object(self, context, prop_name, obj):
             current += char
         if current:
             parts.append(current)
+        print(f"Parsed path: {parts}")
         return parts
 
     try:
@@ -619,11 +625,16 @@ class CreateDriverConstraint(bpy.types.Operator):
             parts = []
             current = ""
             bracket_depth = 0
-            for char in path:
+            for i, char in enumerate(path):
                 if char == "[":
                     bracket_depth += 1
                 elif char == "]":
                     bracket_depth -= 1
+                    if bracket_depth == 0 and i + 1 < len(path) and path[i + 1] == "[":
+                        # Found "][", split into two parts
+                        parts.append(current + char)
+                        current = ""
+                        continue
                 elif char == "." and bracket_depth == 0:
                     if current:
                         parts.append(current)
@@ -640,7 +651,11 @@ class CreateDriverConstraint(bpy.types.Operator):
             parent = None
             for part in parts[2:]:  # Skip 'bpy' and 'data'
                 parent = current
-                if "[" in part and "]" in part:
+                if part.startswith("[") and part.endswith("]"):
+                    # Handle custom properties
+                    key = part[1:-1].strip("\"'")
+                    current = current[key]
+                elif "[" in part and "]" in part:
                     attr, index = part.split("[", 1)
                     index = index.rstrip("]").strip("\"'")
                     if attr:
@@ -655,7 +670,11 @@ class CreateDriverConstraint(bpy.types.Operator):
             print(f"Attempting to add driver to: {self.prop_data_path}")
             parent, target, last_part = get_property_from_path(self.prop_data_path)
 
-            if hasattr(target, "driver_add"):
+            if last_part.startswith("[") and last_part.endswith("]"):
+                # Custom property
+                print(f"Executing: parent.driver_add({last_part})")
+                curve = parent.driver_add(last_part)
+            elif hasattr(target, "driver_add"):
                 print(f"Executing: {self.prop_data_path}.driver_add()")
                 curve = target.driver_add()
             elif hasattr(parent, "driver_add"):
