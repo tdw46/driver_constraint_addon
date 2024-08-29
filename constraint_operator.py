@@ -24,26 +24,56 @@ from mathutils import Vector, Quaternion, Euler
 
 
 def get_prop_object(self, context, prop_name, obj):
-    # Handle complex paths, including VRM add-on paths
-    if prop_name.startswith("bpy.data"):
-        try:
-            parts = prop_name.split(".")
-            current = bpy.data
-            for part in parts[2:]:  # Skip 'bpy' and 'data'
-                if "[" in part and "]" in part:
-                    key = part[part.index("[") + 1 : part.index("]")]
-                    attr = part[: part.index("[")]
-                    current = getattr(current, attr)
-                    if key.isdigit():
-                        current = current[int(key)]
-                    else:
-                        current = current[key.strip("'\"")]
-                else:
-                    current = getattr(current, part)
+    print(f"get_prop_object called with prop_name: {prop_name}")
 
-            # Determine property type for complex paths
+    def parse_path(path):
+        parts = []
+        current = ""
+        bracket_depth = 0
+        for char in path:
+            if char == "[":
+                bracket_depth += 1
+            elif char == "]":
+                bracket_depth -= 1
+            elif char == "." and bracket_depth == 0:
+                if current:
+                    parts.append(current)
+                    current = ""
+                continue
+            current += char
+        if current:
+            parts.append(current)
+        return parts
+
+    if prop_name.startswith("bpy.data") or prop_name.startswith("vrm_addon_extension"):
+        try:
+            parts = parse_path(prop_name)
+            print(f"Parsed path: {parts}")
+            current = bpy.data if prop_name.startswith("bpy.data") else obj
+            for part in parts[2:] if prop_name.startswith("bpy.data") else parts:
+                print(f"Processing part: {part}")
+                if "[" in part and "]" in part:
+                    attr, index = part.split("[", 1)
+                    index = index.rstrip("]").strip("\"'")
+                    if attr:
+                        current = getattr(current, attr)
+                    if hasattr(current, "__getitem__"):
+                        current = current[int(index) if index.isdigit() else index]
+                    else:
+                        print(f"Object does not support indexing: {type(current)}")
+                        return None, None
+                else:
+                    if not hasattr(current, part):
+                        print(f"Attribute not found: {part}")
+                        return None, None
+                    current = getattr(current, part)
+                print(f"Current object: {type(current)}")
+
+            # Determine property type
             if "vrm_addon_extension" in prop_name:
                 return current, "ADDON_PROPERTY"
+            elif isinstance(current, bpy.types.ShapeKey):
+                return current, "SHAPEKEY_PROPERTY"
             elif isinstance(current, bpy.types.Object):
                 return current, "OBJECT_PROPERTY"
             elif isinstance(current, bpy.types.Bone):
@@ -216,12 +246,13 @@ class CreateDriverConstraint(bpy.types.Operator):
             else:
                 obj = context.selected_objects[0]
 
-            if get_prop_object(self, context, self.prop_data_path, obj) != None:
-                self.property_type = get_prop_object(
-                    self, context, self.prop_data_path, obj
-                )[1]
+            result = get_prop_object(self, context, self.prop_data_path, obj)
+            if result is not None and result[1] is not None:
+                self.property_type = result[1]
             else:
+                print(f"Property not found: {self.prop_data_path}")
                 self.prop_data_path = ""
+                self.property_type = "OBJECT_PROPERTY"  # Set a default property type
 
     def get_actions(self, context):
         ACTIONS = []
@@ -243,90 +274,72 @@ class CreateDriverConstraint(bpy.types.Operator):
         return ACTIONS
 
     def get_property_type_items(self, context):
-        if len(context.selected_objects) > 1:
-            obj = None
-            for obj2 in context.selected_objects:
-                if obj2 != context.view_layer.objects.active:
-                    obj = obj2
-                    break
-        else:
-            obj = context.selected_objects[0]
-
-        object_data_icon = "MESH_DATA"
-        if obj.type == "ARMATURE":
-            object_data_icon = "ARMATURE_DATA"
-
-        items = []
-        items.append(
+        items = [
             (
                 "OBJECT_PROPERTY",
                 "Object Property",
                 "Object Property",
                 "OBJECT_DATAMODE",
                 0,
-            )
-        )
-        if obj.type in ["MESH", "CURVE"]:
-            items.append(
-                (
-                    "SHAPEKEY_PROPERTY",
-                    "Shapekey Property",
-                    "Shapekey Property",
-                    "SHAPEKEY_DATA",
-                    1,
-                )
-            )
-            items.append(
-                (
-                    "MODIFIER_PROPERTY",
-                    "Modifier Property",
-                    "Modifier Property",
-                    "MODIFIER",
-                    5,
-                )
-            )
-        items.append(
-            (
-                "OBECT_DATA_PROPERTY",
-                "Data Property",
-                "Data Property",
-                object_data_icon,
-                2,
-            )
-        )
-        items.append(
+            ),
+            ("OBECT_DATA_PROPERTY", "Data Property", "Data Property", "MESH_DATA", 1),
             (
                 "MATERIAL_PROPERTY",
                 "Material Property",
                 "Material Property",
                 "MATERIAL",
-                3,
-            )
-        )
-        items.append(
-            ("TEXTURE_PROPERTY", "Texture Property", "Texture Property", "TEXTURE", 4)
-        )
-        items.append(
-            ("BONE_PROPERTY", "Bone Property", "Bone Property", "BONE_DATA", 6)
-        )
-        items.append(
+                2,
+            ),
+            ("TEXTURE_PROPERTY", "Texture Property", "Texture Property", "TEXTURE", 3),
+            ("BONE_PROPERTY", "Bone Property", "Bone Property", "BONE_DATA", 4),
             (
                 "BONE_CONSTRAINT_PROPERTY",
                 "Bone Constraint Property",
                 "Bone Constraint Property",
                 "CONSTRAINT_BONE",
-                7,
-            )
-        )
-        items.append(
+                5,
+            ),
             (
                 "OBJECT_CONSTRAINT_PROPERTY",
                 "Object Constraint Property",
                 "Object Constraint Property",
                 "CONSTRAINT",
-                8,
+                6,
+            ),
+            ("CUSTOM_PROPERTY", "Custom Property", "Custom Property", "PROPERTIES", 7),
+            ("ADDON_PROPERTY", "Addon Property", "Addon Property", "PLUGIN", 8),
+            (
+                "COMPLEX",
+                "Complex Property",
+                "Complex or nested property",
+                "OUTLINER_DATA_GP_LAYER",
+                9,
+            ),
+        ]
+
+        obj = context.active_object
+        if obj and obj.type in ["MESH", "CURVE"]:
+            items.insert(
+                1,
+                (
+                    "SHAPEKEY_PROPERTY",
+                    "Shapekey Property",
+                    "Shapekey Property",
+                    "SHAPEKEY_DATA",
+                    10,
+                ),
             )
-        )
+            items.insert(
+                2,
+                (
+                    "MODIFIER_PROPERTY",
+                    "Modifier Property",
+                    "Modifier Property",
+                    "MODIFIER",
+                    11,
+                ),
+            )
+
         return items
 
     def driver_limits_flip(self, context):
@@ -355,7 +368,7 @@ class CreateDriverConstraint(bpy.types.Operator):
     property_type: bpy.props.EnumProperty(
         name="Mode",
         items=get_property_type_items,
-        description="Set the space the bone is transformed in. Local Space recommended.",
+        description="Set the type of property to drive",
     )
 
     prop_data_path: bpy.props.StringProperty(
@@ -725,102 +738,107 @@ class CreateDriverConstraint(bpy.types.Operator):
         return {"FINISHED"}
 
     def create_property_driver(self, wm, context, scene, active_object):
+        def parse_path(path):
+            parts = []
+            current = ""
+            bracket_depth = 0
+            for char in path:
+                if char == "[":
+                    if bracket_depth == 0 and current:
+                        parts.append(current)
+                        current = ""
+                    bracket_depth += 1
+                elif char == "]":
+                    bracket_depth -= 1
+                    if bracket_depth == 0:
+                        parts.append(current + char)
+                        current = ""
+                        continue
+                elif char == "." and bracket_depth == 0:
+                    if current:
+                        parts.append(current)
+                        current = ""
+                    continue
+                current += char
+            if current:
+                parts.append(current)
+            return parts
+
         def get_property_from_path(path):
-            parts = path.split(".")
+            parts = parse_path(path)
             current = bpy.data
-            for part in parts[2:]:  # Skip 'bpy' and 'data'
+            for part in parts[2:-1]:  # Skip 'bpy', 'data', and the last part
                 if "[" in part and "]" in part:
-                    key = part[part.index("[") + 1 : part.index("]")]
-                    attr = part[: part.index("[")]
-                    current = getattr(current, attr)
+                    attr, key = part[:-1].split("[")
+                    key = key.strip("\"'")
+                    if attr:
+                        current = getattr(current, attr)
                     if key.isdigit():
                         current = current[int(key)]
                     else:
-                        current = current[key.strip("'\"")]
+                        current = current[key]
                 else:
                     current = getattr(current, part)
-            return current
-
-        def get_parent_and_prop(path):
-            parts = path.split(".")
-            parent = get_property_from_path(".".join(parts[:-1]))
-            prop = parts[-1]
-            return parent, prop
+            return current, parts[-1]  # Return the parent object and the last part
 
         driver_found = False
-        for obj in context.selected_objects:
-            if (
-                obj != context.view_layer.objects.active
-                or len(context.selected_objects) == 1
-            ):
-                try:
-                    if self.prop_data_path.startswith("bpy.data"):
-                        parent, prop = get_parent_and_prop(self.prop_data_path)
-                        curve = parent.driver_add(prop)
-                    else:
-                        data = get_prop_object(self, context, self.prop_data_path, obj)[
-                            0
-                        ]
-                        if data is None:
-                            continue
-                        if data == obj and self.property_type == "OBECT_DATA_PROPERTY":
-                            data = data.data
-                        curve = data.driver_add(self.prop_data_path)
+        try:
+            print(f"Attempting to add driver to: {self.prop_data_path}")
+            target, last_part = get_property_from_path(self.prop_data_path)
 
-                    curves = [curve] if not isinstance(curve, list) else curve
+            # Print the command we're attempting to execute
+            print(
+                f"Executing: {self.prop_data_path.rsplit('.', 1)[0]}.driver_add('{last_part}')"
+            )
 
-                    for curve in curves:
-                        if curve is not None:
-                            driver_found = True
-                            if len(curve.driver.variables) < 1:
-                                curve_var = curve.driver.variables.new()
-                            else:
-                                curve_var = curve.driver.variables[0]
+            curve = target.driver_add(last_part)
 
-                            if len(curve.modifiers) > 0:
-                                curve.modifiers.remove(curve.modifiers[0])
-                            curve.driver.type = "SCRIPTED"
-                            curve_var.type = "TRANSFORMS"
+            if curve is not None:
+                driver_found = True
+                if len(curve.driver.variables) < 1:
+                    curve_var = curve.driver.variables.new()
+                else:
+                    curve_var = curve.driver.variables[0]
 
-                            driver_obj = context.active_object
-                            curve_var.targets[0].id = driver_obj
-                            if driver_obj.type == "ARMATURE":
-                                curve_var.targets[
-                                    0
-                                ].bone_target = bpy.context.active_pose_bone.name
-                            curve_var.targets[0].transform_space = self.space
-                            curve_var.targets[0].transform_type = self.type
+                if len(curve.modifiers) > 0:
+                    curve.modifiers.remove(curve.modifiers[0])
+                curve.driver.type = "SCRIPTED"
+                curve_var.type = "TRANSFORMS"
 
-                            if self.type in ["ROT_X", "ROT_Y", "ROT_Z"]:
-                                min_value = radians(self.min_value)
-                                max_value = radians(self.max_value)
-                            else:
-                                min_value = self.min_value
-                                max_value = self.max_value
+                driver_obj = context.active_object
+                curve_var.targets[0].id = driver_obj
+                if driver_obj.type == "ARMATURE":
+                    curve_var.targets[0].bone_target = context.active_pose_bone.name
+                curve_var.targets[0].transform_space = self.space
+                curve_var.targets[0].transform_type = self.type
 
-                            if self.type in ["SCALE_X", "SCALE_Y", "SCALE_Z"]:
-                                curve.driver.expression = (
-                                    f"max({min_value}-1,(var-1)/({max_value}-1))"
-                                )
-                            else:
-                                curve.driver.expression = (
-                                    f"max({min_value},var/{max_value})"
-                                )
+                if self.type in ["ROT_X", "ROT_Y", "ROT_Z"]:
+                    min_value = radians(self.min_value)
+                    max_value = radians(self.max_value)
+                else:
+                    min_value = self.min_value
+                    max_value = self.max_value
 
-                            for point in curve.keyframe_points:
-                                curve.keyframe_points.remove(point)
-
-                except Exception as e:
-                    self.report(
-                        {"WARNING"},
-                        f"Error adding driver to {self.prop_data_path}: {str(e)}",
+                if self.type in ["SCALE_X", "SCALE_Y", "SCALE_Z"]:
+                    curve.driver.expression = (
+                        f"max({min_value}-1,(var-1)/({max_value}-1))"
                     )
-                    continue
+                else:
+                    curve.driver.expression = f"max({min_value},var/{max_value})"
+
+                for point in curve.keyframe_points:
+                    curve.keyframe_points.remove(point)
+
+        except Exception as e:
+            print(f"Error adding driver: {str(e)}")
+            self.report(
+                {"WARNING"}, f"Error adding driver to {self.prop_data_path}: {str(e)}"
+            )
 
         self.set_limit_constraint(context)
 
         if driver_found:
-            msg = f"{self.prop_data_path} Driver has been added. min value = {min_value}, max value = {max_value}"
+            msg = f"{self.prop_data_path} Driver has been added. min value = {self.min_value}, max value = {self.max_value}"
             self.report({"INFO"}, msg)
         else:
             msg = (
