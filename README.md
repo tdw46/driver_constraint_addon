@@ -1,4 +1,4 @@
-# Blender Driver Constraint Creator Addon
+# Blender Driver Constraint Addon
 
 ## Description
 This Blender addon allows users to easily set up complex drivers with just a few clicks. It supports relationships between object properties, shape keys, and bone transformations. It provides advanced functionality for creating drivers and action constraints in Blender.
