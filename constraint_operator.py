@@ -1,8 +1,8 @@
 """
-Copyright (C) 2016 Andreas Esau
-andreasesau@gmail.com
+Copyright (C) 2016-2024 Andreas Esau and Tyler Walker
+andreasesau@gmail.com, tyler@beyondstudios.us
 
-Created by Andreas Esau
+Created by Andreas Esau modified by Tyler Walker to support ANY property type
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
