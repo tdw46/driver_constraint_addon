@@ -45,142 +45,23 @@ def get_prop_object(self, context, prop_name, obj):
             parts.append(current)
         return parts
 
-    if prop_name.startswith("bpy.data") or prop_name.startswith("vrm_addon_extension"):
-        try:
-            parts = parse_path(prop_name)
-            print(f"Parsed path: {parts}")
-            current = bpy.data if prop_name.startswith("bpy.data") else obj
-            for part in parts[2:] if prop_name.startswith("bpy.data") else parts:
-                print(f"Processing part: {part}")
-                if "[" in part and "]" in part:
-                    attr, index = part.split("[", 1)
-                    index = index.rstrip("]").strip("\"'")
-                    if attr:
-                        current = getattr(current, attr)
-                    if hasattr(current, "__getitem__"):
-                        current = current[int(index) if index.isdigit() else index]
-                    else:
-                        print(f"Object does not support indexing: {type(current)}")
-                        return None, None
-                else:
-                    if not hasattr(current, part):
-                        print(f"Attribute not found: {part}")
-                        return None, None
-                    current = getattr(current, part)
-                print(f"Current object: {type(current)}")
-
-            # Determine property type
-            if "vrm_addon_extension" in prop_name:
-                return current, "ADDON_PROPERTY"
-            elif isinstance(current, bpy.types.ShapeKey):
-                return current, "SHAPEKEY_PROPERTY"
-            elif isinstance(current, bpy.types.Object):
-                return current, "OBJECT_PROPERTY"
-            elif isinstance(current, bpy.types.Bone):
-                return current, "BONE_PROPERTY"
-            elif isinstance(current, bpy.types.PoseBone):
-                return current, "BONE_PROPERTY"
+    try:
+        parts = parse_path(prop_name)
+        current = bpy.data if prop_name.startswith("bpy.data") else obj
+        for part in parts[2:] if prop_name.startswith("bpy.data") else parts:
+            if "[" in part and "]" in part:
+                attr, index = part.split("[", 1)
+                index = index.rstrip("]").strip("\"'")
+                if attr:
+                    current = getattr(current, attr)
+                current = current[int(index) if index.isdigit() else index]
             else:
-                return current, "CUSTOM_PROPERTY"
-        except Exception as e:
-            print(f"Error in get_prop_object for complex path: {str(e)}")
-            return None, None
-
-    # Original implementation starts here
-    wm = context.window_manager
-
-    data = obj.data
-    bone = None
-    shape_keys = None
-    mat = obj.active_material
-    tex = None
-    modifier = None
-    scene = context.scene
-    render = scene.render
-
-    if obj.type in ["MESH", "CURVE"] and obj.data.shape_keys != None:
-        shape_keys = obj.data.shape_keys
-
-    if mat != None:
-        tex = mat.paint_active_slot
-
-    # Check for modifier property
-    if len(obj.modifiers) > 0 and '"' in prop_name:
-        modifier_name = prop_name.split('"')[1]
-        if modifier_name in obj.modifiers:
-            modifier = obj.modifiers[modifier_name]
-            return modifier, "MODIFIER_PROPERTY"
-
-    # Check for texture slot property
-    if "texture_slots" in prop_name and "[" in prop_name:
-        index = int(prop_name[prop_name.find("[") + 1 : prop_name.find("]")])
-        texture_slot = mat.texture_slots[index]
-        return texture_slot, "TEXTURE_PROPERTY"
-
-    # Check for shape key property
-    if shape_keys != None and '"' in prop_name:
-        shape_name = prop_name.split('"')[1]
-        if shape_name in shape_keys.key_blocks:
-            return shape_keys, "SHAPEKEY_PROPERTY"
-    if hasattr(shape_keys, prop_name):
-        return shape_keys, "SHAPEKEY_PROPERTY"
-
-    # Check for bone constraint property
-    if '"' in prop_name:
-        if len(prop_name.split('"')) > 3:
-            bone_name = prop_name.split('"')[1]
-            const_name = prop_name.split('"')[3]
-            if (
-                hasattr(obj.pose, "bones")
-                and bone_name in obj.pose.bones
-                and const_name in obj.pose.bones[bone_name].constraints
-            ):
-                return obj.pose.bones[bone_name].constraints[
-                    const_name
-                ], "BONE_CONSTRAINT_PROPERTY"
-
-    # Check for bone property
-    if obj.type == "ARMATURE" and '"' in prop_name and "bones" in prop_name:
-        if len(prop_name.split('"')) >= 3:
-            bone_name = prop_name.split('"')[1]
-            if bone_name in obj.data.bones:
-                if prop_name.rfind("]") == len(prop_name) - 1:
-                    from_idx = prop_name.rfind("[")
-                    to_idx = prop_name.rfind("]") + 1
-                    prop = prop_name[from_idx:to_idx]
-                else:
-                    from_idx = prop_name.rfind(".") + 1
-                    prop = prop_name[from_idx:]
-                if hasattr(obj.data.bones[bone_name], prop):
-                    bone = obj.data.bones[bone_name]
-                elif hasattr(obj.pose.bones[bone_name], prop):
-                    bone = obj.pose.bones[bone_name]
-                return bone, "BONE_PROPERTY"
-
-    # Check for object property
-    if hasattr(obj, prop_name):
-        return obj, "OBJECT_PROPERTY"
-
-    # Check for object data property
-    if hasattr(data, prop_name):
-        return data, "OBECT_DATA_PROPERTY"
-
-    # Check for material property
-    if mat != None and hasattr(mat, prop_name):
-        return mat, "MATERIAL_PROPERTY"
-
-    # Check for texture property
-    if tex != None and hasattr(tex, prop_name):
-        return tex, "TEXTURE_PROPERTY"
-
-    # Check for object constraint property
-    if '"' in prop_name and "constraint" in prop_name:
-        if len(prop_name.split('"')) == 3:
-            const_name = prop_name.split('"')[1]
-            if const_name in obj.constraints:
-                return obj.constraints[const_name], "OBJECT_CONSTRAINT_PROPERTY"
-
-    return None, None
+                current = getattr(current, part)
+        print(f"Final object: {current}, Type: {type(current)}")
+        return current, "PROPERTY"
+    except Exception as e:
+        print(f"Error in get_prop_object: {str(e)}")
+        return None, None
 
 
 def get_action_length(action):
@@ -248,11 +129,11 @@ class CreateDriverConstraint(bpy.types.Operator):
 
             result = get_prop_object(self, context, self.prop_data_path, obj)
             if result is not None and result[1] is not None:
-                self.property_type = result[1]
+                self.property_type = "PROPERTY"
             else:
                 print(f"Property not found: {self.prop_data_path}")
                 self.prop_data_path = ""
-                self.property_type = "OBJECT_PROPERTY"  # Set a default property type
+                self.property_type = "PROPERTY"
 
     def get_actions(self, context):
         ACTIONS = []
@@ -365,10 +246,10 @@ class CreateDriverConstraint(bpy.types.Operator):
         items=(("DRIVER", "Driver", "Driver"), ("ACTION", "Action", "Action")),
     )
 
-    property_type: bpy.props.EnumProperty(
-        name="Mode",
-        items=get_property_type_items,
-        description="Set the type of property to drive",
+    property_type: bpy.props.StringProperty(
+        name="Property Type",
+        default="PROPERTY",
+        description="Type of the property to drive",
     )
 
     prop_data_path: bpy.props.StringProperty(
@@ -500,8 +381,8 @@ class CreateDriverConstraint(bpy.types.Operator):
             layout = self.layout
 
             row = layout.row()
-            row.label(text="Property Type")
-            row.prop(self, "property_type", text="")
+            row.label(text="Property Data Path")
+            row.prop(self, "prop_data_path", text="")
 
             row = layout.row()
             row.label(text="Get Driver Limits")
@@ -510,10 +391,6 @@ class CreateDriverConstraint(bpy.types.Operator):
             row = layout.row()
             row.label(text="Set Driver Limits")
             row.prop(self, "set_driver_limit_constraint", text="")
-
-            row = layout.row()
-            row.label(text="Property Data Path")
-            row.prop(self, "prop_data_path", text="")
 
             row = layout.row()
             row.label(text="Transform Type")
@@ -744,16 +621,9 @@ class CreateDriverConstraint(bpy.types.Operator):
             bracket_depth = 0
             for char in path:
                 if char == "[":
-                    if bracket_depth == 0 and current:
-                        parts.append(current)
-                        current = ""
                     bracket_depth += 1
                 elif char == "]":
                     bracket_depth -= 1
-                    if bracket_depth == 0:
-                        parts.append(current + char)
-                        current = ""
-                        continue
                 elif char == "." and bracket_depth == 0:
                     if current:
                         parts.append(current)
@@ -767,31 +637,38 @@ class CreateDriverConstraint(bpy.types.Operator):
         def get_property_from_path(path):
             parts = parse_path(path)
             current = bpy.data
-            for part in parts[2:-1]:  # Skip 'bpy', 'data', and the last part
+            parent = None
+            for part in parts[2:]:  # Skip 'bpy' and 'data'
+                parent = current
                 if "[" in part and "]" in part:
-                    attr, key = part[:-1].split("[")
-                    key = key.strip("\"'")
+                    attr, index = part.split("[", 1)
+                    index = index.rstrip("]").strip("\"'")
                     if attr:
                         current = getattr(current, attr)
-                    if key.isdigit():
-                        current = current[int(key)]
-                    else:
-                        current = current[key]
+                    current = current[int(index) if index.isdigit() else index]
                 else:
                     current = getattr(current, part)
-            return current, parts[-1]  # Return the parent object and the last part
+            return parent, current, parts[-1]
 
         driver_found = False
         try:
             print(f"Attempting to add driver to: {self.prop_data_path}")
-            target, last_part = get_property_from_path(self.prop_data_path)
+            parent, target, last_part = get_property_from_path(self.prop_data_path)
 
-            # Print the command we're attempting to execute
-            print(
-                f"Executing: {self.prop_data_path.rsplit('.', 1)[0]}.driver_add('{last_part}')"
-            )
-
-            curve = target.driver_add(last_part)
+            if hasattr(target, "driver_add"):
+                print(f"Executing: {self.prop_data_path}.driver_add()")
+                curve = target.driver_add()
+            elif hasattr(parent, "driver_add"):
+                if "[" in last_part and "]" in last_part:
+                    prop_name, index = last_part.split("[", 1)
+                    index = int(index.rstrip("]"))
+                    print(f"Executing: parent.driver_add('{prop_name}', {index})")
+                    curve = parent.driver_add(prop_name, index)
+                else:
+                    print(f"Executing: parent.driver_add('{last_part}')")
+                    curve = parent.driver_add(last_part)
+            else:
+                raise AttributeError("Cannot add driver to this property")
 
             if curve is not None:
                 driver_found = True
