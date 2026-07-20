@@ -836,5 +836,3 @@ class CreateDriverConstraint(bpy.types.Operator):
 
         return wm.invoke_props_dialog(self)
 
-
-bpy.utils.register_class(CreateDriverConstraint)

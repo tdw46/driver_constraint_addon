@@ -42,6 +42,7 @@ from . import developer_utils
 
 importlib.reload(developer_utils)
 modules = developer_utils.setup_addon_modules(__path__, __name__, "bpy" in locals())
+from .constraint_operator import CreateDriverConstraint
 
 
 # register
@@ -94,6 +95,7 @@ def add_pose_tools(self, context):
 
 
 def register():
+    bpy.utils.register_class(CreateDriverConstraint)
     bpy.types.VIEW3D_MT_pose_context_menu.append(add_to_specials)
     bpy.types.VIEW3D_MT_object_context_menu.append(add_to_specials)
     bpy.types.VIEW3D_PT_tools_posemode_options.append(add_pose_tools)
@@ -107,5 +109,6 @@ def unregister():
     bpy.types.VIEW3D_MT_object_context_menu.remove(add_to_specials)
     bpy.types.VIEW3D_PT_tools_posemode_options.remove(add_pose_tools)
     bpy.types.VIEW3D_PT_tools_active.remove(add_pose_tools)
+    bpy.utils.unregister_class(CreateDriverConstraint)
 
     print("Unregistered {}".format(bl_info["name"]))
